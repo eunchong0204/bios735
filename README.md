@@ -20,4 +20,19 @@ Eunchong Kang
 |12|hw12|04/20/2022|submitted|04/15/2022|
 
 
+###
+Title of hw
+1. readable and efficient R code
+2. building an R package
+3. C++ code from R
+4. Working with large datasets
+5. Optimization
+6. EM
+7. Numerical Integration
+8. MCMC
+9. MCMC
+10. advMCMC
+11. Machine learning essentials
+12. Support Vector Machines
+
 
