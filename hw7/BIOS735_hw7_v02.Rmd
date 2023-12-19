@@ -1,0 +1,195 @@
+---
+title: "HW 7 - Numerical Integration"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, warning=FALSE}
+library(statmod)
+library(optimx)
+library(numDeriv)
+```
+
+# Maximization of poisson GLMM from lecture
+
+Now that we have discussed several approaches for numerical integration, lets now maximize the model given in lecture.  You may choose any maximization approach, as well as any numerical integration procedure from lecture, to obtain the MLE's for $\boldsymbol{\beta}$ and $\sigma_{\gamma}^2$.  
+
+Hint: You should evaluate a number of intervals/nodes, decreasing the convergence threshold, etc and evaluate its impact before reporting your final result. We have shown how to perform, for example, AGQ and IS to obtain the likelihood pertaining to the first subject from class. 
+
+```{r}
+setwd("D:/Spring_2022_D/BIOS735/hw/hw7")
+alz = read.table("alzheimers.dat", header = T)
+xi <- cbind(rep(1,5), 1:5)
+y1 <- alz$words[alz$subject == 1]
+beta = c(1.804, 0.165)
+s2gamma = 0.000225
+
+## 1. Integration related helper functions
+# 1-1. Create integrand function for ith subject
+# This needs to calculate muhat and sigma2hat for aGQ
+inner <- function(gammai, yi, beta, s2gamma, log = F){
+        val <- rep(NA, length(gammai))
+        
+        for (i in 1:length(val)){
+                lambda <- exp(xi %*% beta + gammai[i])
+                val0 <- dpois(x = yi, lambda = lambda)
+                val[i] <- prod(val0) * dnorm(x = gammai[i],
+                                             mean = 0,
+                                             sd = sqrt(s2gamma))
+        }
+        
+        if (log == F){
+                return(val)
+        } else{
+                return(log(val))
+        }
+}
+# Confirm
+inner(0.2, y1, beta, s2gamma)
+
+# 1-2. Create a function calculating the posterior mode of the integrand (=muhat)
+muhat <- function(yi, beta, s2gamma) {
+        pm <- suppressWarnings(
+                optimx(
+                        par = 0,
+                        fn = function(x, yi, beta, s2gamma) {
+                                inner(
+                                        gammai = x,
+                                        yi = yi,
+                                        beta = beta,
+                                        s2gamma = s2gamma
+                                )
+                        },
+                        yi = yi,
+                        beta = beta,
+                        s2gamma = s2gamma,
+                        method = "Nelder-Mead",
+                        control = list(maximize = T)
+                )
+        )
+        return(pm$p1)
+}
+# Confirm
+muhat(y1, beta, s2gamma)
+
+# 1-3. Create a function calculating a sigma2hat
+sigma2hat <- function(muhat, yi, beta, s2gamma, inner) {
+        hess_pm <- hessian(
+                func = inner,
+                x = muhat,
+                yi = yi,
+                beta = beta,
+                s2gamma = s2gamma,
+                log = T
+        )
+        
+        return(-1 / hess_pm)
+}
+# 사용법 결과=matrix
+sigma2hat(muhat(y1, beta, s2gamma), y1, beta, s2gamma, inner)
+sqrt(sigma2hat(muhat(y1, beta, s2gamma), y1, beta, s2gamma, inner))
+
+# 1-4 Create h(x) function 
+# Integrad factors into h(x)*pi(gammai|muhat,sigma2hat)
+h_t <- function(t, yi, beta, s2gamma, muhat, sigma2hat){
+        val <- rep(NA, length(t))
+        
+        for (i in 1:length(val)){
+                lambda <- exp(xi %*% beta + t[i])
+                val0 <- dpois(x = yi, lambda = lambda)
+                val[i] <- prod(val0) * 
+                        dnorm(x = t[i], mean = 0, sd = sqrt(s2gamma)) / 
+                        dnorm(x = t[i], mean = muhat, sd = sqrt(sigma2hat))
+        }
+        return(val)
+}
+
+# Confirm
+h_t(t, y1, beta, s2gamma, muhat(y1, beta, s2gamma), sigma2hat(muhat(y1, beta, s2gamma), y1, beta, s2gamma, inner))
+
+M <- 5
+gh <- gauss.quad(n = M, kind = "hermite")
+nodes_over_gamma1 <- gh$nodes
+
+t <- muhat(y1, beta, s2gamma) + sqrt(2*as.numeric(sigma2hat(muhat(y1, beta, s2gamma), y1, beta, s2gamma, inner))) * nodes_over_gamma1
+
+w <- gh$weights /sqrt(pi)
+
+val <- sum(w * h_t(t, y1, beta, s2gamma, muhat(y1, beta, s2gamma), sigma2hat(muhat(y1, beta, s2gamma), y1, beta, s2gamma, inner)))
+
+val
+
+
+## 2. Integrate 
+# This function calculates Log-likelihood given beta and s2gamma
+integr <- function(theta, M) {
+        # Split theta into beta and s2gama
+        beta <- theta[1:2]
+        s2gamma <- theta[3]
+        
+        # Finds nodes and weights
+        gh <- gauss.quad(n = M, kind = "hermite")
+        nodes_over_gamma <- gh$nodes
+        
+        # Create NA vector
+        val <- rep(NA, max(alz$subject))
+        
+        # Looping
+        for (i in 1:max(alz$subject)) {
+                # Subset data by subject
+                yi <- alz$words[alz$subject == i]
+                
+                # Calculate muhat and sigma2hat by subject
+                muhat_yi <- muhat(yi, beta, s2gamma)
+                sigma2hat_yi <- sigma2hat(muhat_yi, yi, beta, s2gamma, inner)
+                
+                # Calculate new nodes and weights
+                t <- muhat_yi + sqrt(2 * as.numeric(sigma2hat_yi)) * nodes_over_gamma
+                w <- gh$weights / sqrt(pi)
+                
+                # Approximate the integral by subject
+                val[i] <- sum(
+                        w * h_t(
+                                t = t,
+                                yi = yi,
+                                beta = beta,
+                                s2gamma = s2gamma,
+                                muhat = muhat_yi,
+                                sigma2hat = sigma2hat_yi
+                        )
+                )
+                
+        }
+        
+        # Calculate Log-likelihood
+        return(sum(log(val)))
+}
+# Confirm
+integr(c(beta, s2gamma), M=5)
+
+
+## 3. Optimize using Nelder-Mead
+fit <- optimx(
+        par = c(beta, s2gamma),
+        fn = function(x, M){integr(theta=x, M)},
+        M = 1,
+        method = "Nelder-Mead",
+        control = list(maximize = T)
+)
+
+```
+
+# Plot
+
+Now, plot the fitted line from the fitted GLMM on the spaghetti plot from lecture
+
+```{r}
+## solution
+## end solution
+```

@@ -1,0 +1,140 @@
+---
+title: "Homework 12 - Support Vector Machines"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Credit card dataset
+
+```{r, warning=FALSE, message=FALSE}
+# Library set-up
+library(readr)
+library(caret)
+library(RANN)
+
+```
+
+# Data Import
+```{r, message=FALSE}
+setwd("D:/Spring_2022_D/BIOS735/hw/hw12")
+z <- read_csv("phpKo8OWT.csv")
+y_full <- factor(gsub("\\'","",z$Class))
+x_full <- as.data.frame(z[,c(-1,-32)])
+```
+
+# Data Subsampling
+```{r}
+set.seed(1)
+idx <- c(sample(which(y_full == "0"), sum(y_full == "1")), which(y_full == "1"))
+y <- y_full[idx]
+x <- as.data.frame(scale(x_full[idx,]))
+```
+
+# SVM
+
+## 1. Train data
+### 1. Linear basis function SVM
+```{r}
+# SVM Linear with C=100
+set.seed(1)
+tg <- data.frame(C=100)
+fit_svmLinear <- train(x, y, method="svmLinear", tuneGrid=tg)
+fit_svmLinear$results
+```
+  
+### 2. Radial basis function SVM
+```{r}
+# SVM Radial with C=2^-2, 2^-1, ... , 2^6, 2^7
+set.seed(1)
+fit_svmRadial <- train(x, y, method="svmRadial", metric="Kappa", tuneLength = 10)
+fit_svmRadial$results
+ggplot(fit_svmRadial$results, aes(C, Kappa)) +
+        geom_point() +
+        coord_cartesian(xlim=c(0,130), ylim=c(0.825 ,0.9)) +
+        labs(x= "C", y="Kappa", title="Kappa over C in SVM radial") +
+        scale_x_continuous(breaks=seq(0, 130, 10)) +
+        scale_y_continuous(breaks=seq(0.825, 0.9, 0.05))
+```
+
+## 2. Important Variables
+ The plots below shows the five most important variables for each method by using ROC curve variable importance. The top 5 important variables are the same as in both methods.
+
+```{r}
+svmLinear_var <- varImp(fit_svmLinear)
+svmRadial_var <- varImp(fit_svmRadial)
+plot(svmLinear_var, top=5, main="SVM Linear")
+plot(svmRadial_var, top=5, main="SVM Radial")
+```
+
+## 3. Scatterplot and decision boundary
+
+### 1. Data Preprocess
+
+```{r}
+# data frame with y, V14, V12 from y and x
+dt <- data.frame(y=y, x)
+
+
+# Creating data by putting NA for other variables and imputting
+## Grid set-up
+s <- seq(from=-4, to=4, length=40)
+grid <- expand.grid(V14=s, V12=s)
+
+## NA dataframe with V14 and V12
+x_na <- data.frame(matrix(NA, nrow=nrow(grid), ncol=ncol(x)))
+names(x_na) <- names(x)
+x_na$V14 <- grid$V14
+x_na$V12 <- grid$V12
+
+## Imputing NAs using knn
+imp <- preProcess(x, method="knnImpute")
+dt_grid <- predict(imp, x_na)
+```
+
+### 2. Linear basis function SVM
+
+```{r}
+# data for grid
+alpha <- fit_svmLinear$finalModel@alpha[[1]]
+sv <- as.data.frame(x[fit_svmLinear$finalModel@SVindex,])
+sv.y <- 2*(as.numeric(y[fit_svmLinear$finalModel@SVindex]) - 1.5)
+w <- (colSums(alpha * sv.y * as.matrix(sv)))
+b <- fit_svmLinear$finalModel@b
+
+# Predicting
+dt_grid_linear <- dt_grid
+dt_grid_linear$y <- predict(fit_svmLinear, newdata=dt_grid)
+dt_grid_linear$y.cont <- (as.matrix(dt_grid[,1:30]) %*% w - b)[,1]
+
+# Plotting
+ggplot(dt, aes(V14, V12, col=y)) + 
+        geom_point() + 
+        geom_point(data=sv, col="black", size=1.5, shape=21) +
+        geom_contour(data=dt_grid_linear, aes(V14, V12, z=y.cont), breaks=0, col="black") +
+        geom_raster(data=dt_grid_linear, aes(V14, V12, fill=y), alpha=.2)
+```
+
+### 3. Radial basis function SVM
+
+```{r}
+# data for grid
+rsv <- as.data.frame(x[fit_svmRadial$finalModel@SVindex,])
+
+#Predicting
+dt_grid_radial <- dt_grid
+dt_grid_radial$y <- predict(fit_svmRadial, newdata=dt_grid_radial)
+dt_grid_radial$yy <- 2*(as.numeric(dt_grid_radial$y) - 1.5)
+
+# Plotting
+ggplot(dt, aes(V14, V12, col=y)) + 
+        geom_point() + 
+        geom_point(data=rsv, col="black", size=1.5, shape=21) +
+        geom_contour(data=dt_grid_radial, aes(V14, V12, z=yy), breaks=0, col="black") +
+        geom_raster(data=dt_grid_radial, aes(V14, V12, fill=y), alpha=.2)
+
+```
+
+There seems no big difference between linear and radial basis SVM. When V14 is a little less than zero and V12 is greater than 2, both methods give the different results. However, in the region in which many observations locates, the predictions by both methods are similar.

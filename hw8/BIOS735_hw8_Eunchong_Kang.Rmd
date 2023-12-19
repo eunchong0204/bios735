@@ -1,0 +1,164 @@
+---
+title: "HW 8 - MCMC"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+# library set-up
+library(tidyverse)
+```
+
+# Importance and Rejection Sampling
+
+Write the form of the integral pertaining to $\sigma^2 = E[X^2]$ and $p(x) = c \cdot q(x) =c \cdot \exp({−|x|^3/3})$
+
+solution:  
+$$E(X^2) = \int x^2 \cdot p(x) dx = \int x^2 \cdot c \cdot q(x) dx = \int x^2 \cdot c \cdot e^{\frac{-|x|^3}{3}} dx$$
+
+## 1. Find the estimate for $\sigma^2$ using importance sampling.  
+
+Write the expression for the integral using an importance sampling scheme, then carry out this approximation of the expectation.
+
+solution:  
+Let $g(x) = \frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}}$, which means $g \sim N(0,1)$, and this would be a good choice because $g(x)$ covers the support of $q(x)$ and has a fatter tail.
+The re-expression of the integral is below.
+
+$$E(X^2) = \int x^2 \cdot c \cdot \frac{q(x)}{g(x)}g(x) dx = \int x^2 \cdot c \cdot \frac{e^{\frac{-|x|^3}{3}}}{\frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}}}\frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}} dx$$
+
+The approximation is below.
+$$ E(X^2) \approx \frac{1}{M} \sum_{k=1}^M x_k^2 \cdot c \cdot w^*(x_k) = \frac{c}{M} \sum_{k=1}^M x_k^2 \frac{e^{\frac{-|x_k|^3}{3}}}{\frac{1}{\sqrt{2\pi}}e^{-\frac{x_k^2}{2}}}$$
+
+where $x_k$s are random samples from standard normal distribution.
+
+```{r}
+## Create helper functions
+# h(x) = x^2 function
+h_x <- function(x){
+        value <- x^2
+        return(value)
+}
+
+# q(x) function
+q_x <- function(x){
+        value <- exp(-abs(x)^3/3)
+        return(value)
+}
+
+## Approximate the integral
+# set M
+M = 10^5
+
+# Draw M samples from g(x) = standard normal distribution
+set.seed(1)
+y_imp <- rnorm(M, 0, 1)
+
+# Compute importance weights
+w_star <- q_x(y_imp) / dnorm(y_imp)
+
+# Compute MC estimate of integral
+mean(h_x(y_imp)*w_star)
+```
+
+ Since $$ \int c \cdot e^{\frac{-|x|^3}{3}} dx = 1 \Leftrightarrow \int e^{\frac{-|x|^3}{3}} dx = \frac{1}{c},$$ $c$ can be calculated by the code below.
+
+```{r}
+# Sample x for calculating c
+set.seed(2)
+y_c <- rnorm(M, 0, 1)
+
+# compute weights for calculating c
+w_star_c <- q_x(y_c) / dnorm(y_c)
+
+# Approximate c
+1/mean(w_star_c)
+```
+
+Therefore, the estimated $E(X^2)$ is below.
+```{r}
+# Calculate E(x^2)
+1/mean(w_star_c)*mean(h_x(y_imp)*w_star)
+```
+
+
+## 2. Repeat the procedure using rejection sampling. 
+
+Write out the form of the integral and then its approximation based on rejection sampling.
+
+solution:  
+It is necessary to find $e(x)$, $g(x)$, and $\alpha$ such that $e(x) = \frac{g(x)}{\alpha} > q(x)$ and $\alpha \leq 1$.  
+Put $g(x) = \frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}}$ again. Note that $g(x)$ is always greater than $q(x)$ when $|x| \geq 1$, and $g(x)$ and $q(x)$ are even functions. Thus, it is needed to compare the above inequality only when $0 < x < 1$  
+The inequality can be simplified into the below.
+
+$$e(x) = \frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}}\frac{1}{\alpha} > e^{-\frac{x^3}{3}} \Leftrightarrow \, 
+...\, \Leftrightarrow log(\frac{1}{\alpha\sqrt{2\pi}}) > \frac{x^2}{2}-\frac{x^3}{3}$$
+
+Here, $\frac{x^2}{2}-\frac{x^3}{3}$ has the maximum value of $\frac{1}{6}$ at $x = 1$ on $0<x<1$.  
+Therefore, one can put $log(\frac{1}{\alpha\sqrt{2\pi}}) > \frac{1}{6}$, which is equivalent to $\alpha < \frac{1}{\sqrt{2\pi}e^{1/6}} = 0.3376973...$. 
+
+Now, put $\alpha=0.3$ then $e(x) = \frac{g(x)}{0.3}$.
+
+```{r}
+# Confirm g(x)/alpha > q(x)
+x <- seq(-3, 3, length.out = 10000)
+set.seed(3)
+dt <- data.frame(x=x, e=dnorm(x)/0.3, q=q_x(x))
+
+ggplot(dt) +
+        geom_point(aes(x, q),size=0.3) + 
+        geom_point(aes(x, e), size=0.3, color="red") +
+        labs(title = "Comparison between e(x) and q(x)",
+             caption = "red line represents e(x) and black does q(x)") +
+        ylab("value")
+```
+
+
+The graph above shows $e(x) > q(x)$ on the real line.  
+The code to implement the rejection sampling and approximate the integral is below.
+
+```{r}
+# The number of samples to keep
+M <- 10^5
+
+# In case of alpha is low
+maxit <- M * 10^4
+
+# Specify vector storing samples
+smpl <- rep(0,M)
+
+# Start rejection algorithm
+i <- index <- 1
+
+while (i <= M & index < maxit){
+        # Sample from N(0,1)
+        candidate <- rnorm(1,0,1)
+        
+        # Sample from U(0,1)
+        Ui <- runif(1,0,1)
+        
+        # Calculate ratio
+        r <- 0.3 * q_x(candidate) / dnorm(candidate)
+        
+        # Check Ui vs r
+        if (Ui < r){
+                smpl[i] <- candidate
+                i <- i + 1
+        }
+        
+        # Keep track of total number of sampling
+        index <- index + 1
+}
+
+# Calculate the approximation of E(x^2)
+mean(smpl^2) 
+# Calculate acceptance rate
+print(M / index)
+```

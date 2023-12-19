@@ -1,0 +1,252 @@
+---
+title: "Homework 6 - EM"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+include-before:
+- '\newcommand{\bfm}[1]{\ensuremath{\mathbf{#1}}}'
+- '\newcommand{\bdm}[1]{\ensuremath{\boldsymbol{#1}}}'
+- '$\def \d \bfm{d}$'
+- '$\def \e \bfm{e}$'
+- '$\def \g \bfm{g}$'
+- '$\def \I \bfm{I}$'
+- '$\def \l \bfm{l}$'
+- '$\def \M \bfm{M}$'
+- '$\def \W \bfm{W}$'
+- '$\def \y \bfm{y}$'
+- '$\def \Y \bfm{Y}$'
+- '$\def \x \bfm{x}$'
+- '$\def \X \bfm{X}$'
+- '$\def \z \bfm{z}$'
+- '$\def \thetab \boldsymbol{\theta}$'
+- '$\def \betab \boldsymbol{\beta}$'
+- '$\def \pib \boldsymbol{\pi}$'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, warning=FALSE, message=FALSE}
+library(optimx)
+```
+
+
+# Question 1:  Not So Simple Univariate Optimization
+
+Maximize the equation below and compare a result with one from NR method.
+
+$$f(x) = 1.95 - e^{-2/x} - 2e^{-x^4}.$$
+
+```{r}
+# f(x)
+f = function(x){
+        value <- 1.95 - exp(-2/x) - 2*exp(-x^4)
+        return(value)
+}
+
+# first derivative
+f1 = function(x){
+        first <- -2/x^2*exp(-2/x) + 8*x^3*exp(-x^4)
+        return(first)
+}
+
+# Make the optimizing funtion using bfgs with an argument being the initial value.
+bfgs <- function(x){
+        fit <- optimx(
+                        par = x,
+                        fn = f,
+                        gr = f1,
+                        method = "BFGS",
+                        control = list(trace = 0,
+                                       maximize = TRUE)
+        )
+        print(fit)
+}
+# Initial value of 1.2
+bfgs(1.2)
+# Initial value of 0.5
+bfgs(0.5)
+# Initial value of 0.99
+bfgs(0.99)
+```
+
+  + Conclusion: The results of BFGS method with the three different starting points show the same maximum value of 1.674725 at x = 1.470358. In the NR algorithm, all three starting points resulted in the different maximum values. One reason of this difference is that BFGS ensures ascent. When using NR method with the stating, $x=0.5$, the $f(x)$ is actually decreasing as iteration goes on. In addtion, compared to BFGS, NR method is more sensitive to the starting points, so it calculated the three maximum values in the last homework whereas BFGS shows the same maximum value for each starting points.
+
+
+
+## EM:  Zero-inflated Poisson 
+
+
+### Expression for Log Likelihood: from the previous HW
+
+likelihood:
+
+$$ 
+L(\boldsymbol{\theta}) = \prod_{i=1}^n (\pi + (1-\pi)e^{-\lambda})^{I[y_i=0]}\left((1-\pi)\frac{e^{-\lambda}\lambda^{y_i}}{y_i!}\right)^{I[y_i>0]}
+$$
+
+log-likelihood:
+
+$$\mathcal{l}(\boldsymbol{\theta}) = \sum_{i=1}^n I[y_i=0]\log(\pi + (1-\pi)e^{-\lambda}) + I[y_i>0]\left(\log(1-\pi) -\lambda + {y_i}\log(\lambda) + \log{y_i!}\right)$$
+
+### Expression for Complete Data Log Likelihood: Solution
+
+CDL:
+
+$$ 
+L(\boldsymbol{\lambda},\,{\pi} \,|\, y_i,\,z_i) = \prod_{i=1}^n (\pi\times I[y_i=0])^{I[z_i=1]} \left((1-\pi)\times\frac{e^{-\lambda}\lambda^{y_i}}{y_i!}\right)^{I[z_i=0]}
+$$
+
+
+CDLL:
+
+$$
+\mathcal{l}(\boldsymbol{\lambda},\,{\pi} \,|\, y_i,\,z_i) = \sum_{i=1}^n I[z_i=1] \left( \log(\pi) +  \log(I[y_i=0])\right) + I[z_i=0]\left(log(1-\pi) -\lambda + {y_i}\log(\lambda) + \log{y_i!}\right)
+$$
+
+
+### Expression for E-step: Solution
+
+$Q(\lambda,\pi|\lambda^{(t)},\pi^{(t)})$ function:
+$$
+Q(\lambda,\pi|\lambda^{(t)},\pi^{(t)}) = \sum_{i=1}^n p(z_i=1|y_0,\lambda^{(t)},\pi^{(t)}) \left( \log(\pi) +  \log(I[y_i=0])\right) + p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)})\left(log(1-\pi) -\lambda + {y_i}\log(\lambda) + \log{y_i!}\right)
+$$
+where
+$$
+p(z_i=1|y_0,\lambda^{(t)},\pi^{(t)}) = \frac{\pi^{(t)}\times I[y_i=0]}{\pi^{(t)}\times I[y_i=0] + (1-\pi^{(t)})\times\frac{e^{-\lambda^{(t)}}(\lambda^{(t)})^{y_i}}{y_i!}}
+$$
+and
+
+
+$$
+p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)}) = \frac{(1-\pi^{(t)})\times\frac{e^{-\lambda^{(t)}}(\lambda^{(t)})^{y_i}}{y_i!}}{\pi^{(t)}\times I[y_i=0] + (1-\pi^{(t)})\times\frac{e^{-\lambda^{(t)}}(\lambda^{(t)})^{y_i}}{y_i!}}
+$$
+
+### Expression for M-step: Solution
+
+First, to find the closed form for $\pi^{(t+1)}$, take the drivative of $Q(\lambda,\pi|\lambda^{(t)},\pi^{(t)})$ in terms of $\pi$ and set to zero. Then, the result is below.
+$$
+\pi^{(t+1)} = \frac{\sum_{i=n}^n p(z_i=1|y_0,\lambda^{(t)},\pi^{(t)})}{\sum_{i=n}^np(z_i=1|y_0,\lambda^{(t)},\pi^{(t)}) + p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)})}
+$$
+Here, the denominator equals total individuals (=n).
+
+For $\lambda^{(t+1)}$, one needs to consider only the terms related with $\lambda$ which is $\sum_{i=1}^n p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)})\left(log(\frac{e^{-\lambda}\lambda^{y_i}}{y_i!})\right)$. This equation equals to the below.
+$$
+\sum_{y=0}^6 n_y \times p(z=0|y_0,\lambda^{(t)},\pi^{(t)})\left(log(\frac{e^{-\lambda}\lambda^{y}}{y!})\right)
+$$
+Therefore, $\lambda$ can be found by maximizing a weighted Poisson GLM with prior weights $n_y \times p(z=0|y_0,\lambda^{(t)},\pi^{(t)})$.
+
+Another possible solution is to calculate the two closed form for both $\pi^{(t+1)}$ and $\lambda^{(t+1)}$. For $\lambda^{(t+1)}$, the closed form is $$\lambda^{(t+1)}=\frac{\sum_{i=1}^n p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)}) \times y_i}{\sum_{i=1}^n p(z_i=0|y_0,\lambda^{(t)},\pi^{(t)})}$$ I will include the code which uses the two closed form to calculate $\hat \pi$ and $\hat \lambda$.
+
+### Code implementation 
+1. By using the closed form for $\pi$ and the weighted Poisson GLM.
+```{r}
+# data 
+y = 0:6
+ny = c(3062, 587, 284, 103, 33, 4, 2)
+
+## create posterior probability matrix
+pp = matrix(0,length(y), 2)
+colnames(pp) = c("non-fisher", "fisher")
+## initialize partion, everything  with count 0 is non-fisher, otherwise fisher
+pp[which(y ==0),1] = 1
+pp[,2] = 1 - pp[,1]
+
+# to start the model
+em <- function(y, ny, pp, eps=Inf, tol=10^-8, iter=0, maxit=50, ll=-10000) {
+        while (eps > tol & iter < maxit) {
+                # Indicater
+                y_indi <- ifelse(y == 0, 1, 0)
+                
+                ## save old ll
+                ll0 <- ll
+                
+                ## start M-step
+                # pi, 1 x 2 vector
+                pi[1] <- ny[1] / sum(ny) * pp[1, 1]
+                pi[2] <- 1 - pi[1]
+                
+                # lambda, scalar
+                lambda <- exp(glm(y ~ 1, family = poisson(), weights = ny * pp[, 2])$coef)
+                
+                ## start E-step
+                # update pp
+                pp[, 1] <- pi[1] * y_indi
+                pp[, 2] <- ifelse(y == 0, pi[2] * dpois(0, lambda = lambda), 1)
+                pp = pp / rowSums(pp)
+                
+                ## calculate LL
+                ll <- sum(ny * log(pi[1] * y_indi + pi[2] * dpois(y, lambda = lambda)))
+                
+                ## calculate relative change in log likelihood
+                eps  = abs(ll - ll0) / abs(ll0)
+                
+                ## update iterator
+                iter = iter + 1
+                if (iter == maxit)
+                        warning("Iteration limit reached without convergence")
+                
+                ## print out info to keep track
+                cat(sprintf("Iter: %d logL: %.4f pi1: %.4f lambda: %.4f eps:%f\n", iter, ll, pi[1], lambda, eps))
+        }
+}
+
+# Calculating pi and lambda with the initial pp.
+em(y,ny,pp)
+```
+
+2. By using the two closed forms for both $\pi^{(t+1)}$ and $\lambda^{(t+1)}$.
+
+```{r}
+## This code is made using the two closed form for pi and lambda. 
+
+# Initial values for pi and lambda
+# The initial pi is the proportion of people who could not or did not catch fish
+# The initial lambda is the total mean.
+pi <- ny[1]/sum(ny)
+lambda <- sum(ny*y)/sum(ny)
+
+em2 <- function(y, ny, pi, lambda, eps=Inf, tol=10^-8, iter=0, maxit=50) {
+        # Save the initial value
+        init <- c(pi, lambda)
+        
+        while (eps > tol & iter < maxit) {
+                # Save old pi and lambda
+                pi0 <- pi
+                lambda0 <- lambda
+                
+                # Calculate pi(t+1) and lambda(t+1) using the closed form
+                pi1 <- ny[1] / sum(ny) * pi / (pi + (1 - pi) * dpois(0, lambda = lambda))
+                lambda1 <- sum(ny * y) / (sum(ny[2:7]) + ny[1] * (1 - pi) * dpois(0, lambda = lambda) / (pi + (1 - pi) * dpois(0, lambda = lambda)))
+                
+                # Save the results in the original objects
+                pi <- pi1
+                lambda <- lambda1
+                
+                # Calculate eps
+                eps <- sqrt((pi0 - pi) ^ 2 + (lambda0 - lambda) ^ 2)
+                
+                # Update iteration
+                iter = iter + 1
+                if (iter == maxit)
+                        warning("Iteration limit reached without convergence")
+        }
+        
+        # Print the results
+        paste("The initial theta is (", round(init[1],digits=4), round(init[2],digits=4), 
+              "). The results of EM algorithm are (pi, lambda) = (", 
+              round(pi, digits = 4), round(lambda, digits = 4), 
+              ")")
+}
+
+# Calculating pi and lambda using em2 function.
+em2(y,ny,pi,lambda)
+```
+
+
+

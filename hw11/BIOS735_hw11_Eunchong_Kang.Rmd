@@ -1,0 +1,125 @@
+---
+title: "Homework 11 - Machine learning essentials"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+## 1. Library set-up
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+```
+
+## 2. Data Set-up
+```{r}
+data(faithful)
+n <- nrow(faithful)
+faithful <- data.frame(lapply(faithful, scale))
+faithful$cl <- factor(kmeans(faithful, centers=2)$cluster)
+
+# make it more challenging
+set.seed(1)
+faithful[,1] <- faithful[,1] + rt(n,df=5)/2
+faithful[,2] <- faithful[,2] + rt(n,df=5)/2
+plot(faithful[,1:2], col=faithful$cl)
+x <- faithful[,1:2]
+y <- faithful[,3]
+```
+
+# Use of `caret` with various methods
+
+## 3. SVM with Radial Kernel
+
+The tuning parameter for SVM was $C$. Given the sigma at 0.9831421, The values of $C$ were $2^{-2}$, $2^{-1}$, $2^0$, $2^1$, $...$, $2^{9}$, $2^{10}$. set.seed(1) was used. The parameters which output the best Kappa were $C=2$ with Kappa at 0.91371.
+
+```{r}
+# svmRadial
+start = Sys.time()
+set.seed(1)
+fit_svm <- train(x, y, method="svmRadial", metric="Kappa", tuneLength = 13)
+end = Sys.time()
+print(end - start)
+
+# Store the results
+fit_svm_results <- fit_svm$results
+
+# Obtain the best one according to Kappa
+fit_svm_best <- fit_svm_results[which.max(fit_svm_results$Kappa),]
+fit_svm_best
+```
+
+## 4. Random forest
+
+The tuning parameters for Random Forest were $mtry$ and $ntree$. All combinations of mtry=c(1,2) and ntree=c(100, 250, 500, 1000, 1500, 2000, 2500) were compared with set.seed(1). The parameters which output the best Kappa were mtry=1 and ntree=1000 with Kappa at 0.9020962.
+
+
+```{r}
+# rf
+# create an empty data.frame for results
+fit_rf_results <- data.frame()
+# iteration helper
+i <- 0
+
+# Iteration with mtry=c(1,2) and ntree=c(100, 250, 500, 1000, 1500, 2000, 2500)
+start = Sys.time()
+for (ntree in c(100, 250, 500, 1000, 1500, 2000, 2500)){
+        i <- i + 1
+        set.seed(1)
+        fit_rf <- train(x, y, method="rf", metric="Kappa", tuneGrid = data.frame(mtry=c(1,2)), ntree=ntree)
+        fit_rf_results[(2*i-1):(2*i),1] <- toString(ntree)
+        fit_rf_results[(2*i-1):(2*i),2:6] <- fit_rf$results
+}
+end = Sys.time()
+print(end - start)
+
+# Results vector
+# fit_rf_results
+
+# Obtain the best one according to Kappa
+fit_rf_best <- fit_rf_results[which.max(fit_rf_results$Kappa),]
+fit_rf_best
+```
+
+
+## 5. Gradient boosting machine
+
+The tuning parameters for Random Forest were $interaction.depth$ and $n.trees$. Given shrinkage=0.1 and n.minobsinnode =10, all combinations of interaction.depth=c(1, ..., 13) and n.trees=c(50, 100, ..., 450, 500) were compared with set.seed(1). The parameters which output the best Kappa were interaction.depth=1 and n.trees=150 with Kappa at 0.9007205.
+
+```{r}
+# gbm
+start = Sys.time()
+set.seed(1)
+fit_gbm <- train(x, y, method="gbm", metric="Kappa", tuneLength = 13, verbose=FALSE)
+end = Sys.time()
+print(end - start)
+
+# Store the results
+fit_gbm_results <- fit_gbm$results
+
+# Obtain the best one according to Kappa
+fit_gbm_best <- fit_gbm_results[which.max(fit_gbm_results$Kappa),]
+fit_gbm_best
+```
+
+## 6. Pointrange Plot
+
+The method which output the best Kappa was SVM. However, all the methods were mostly overlapping on the pointrange graph.
+
+```{r}
+# Data merging
+dt <- data.frame(method=c("svm", "rf", "gbm"), Kappa=c(fit_svm_best$Kappa, fit_rf_best$Kappa, fit_gbm_best$Kappa), KappaSD=c(fit_svm_best$KappaSD, fit_rf_best$KappaSD, fit_gbm_best$KappaSD))
+
+dt
+
+# Plotting
+ggplot(dt, aes(method, Kappa)) +
+        geom_point() +
+        geom_errorbar(aes(ymin=Kappa-KappaSD, ymax=Kappa+KappaSD), width=0.2) +
+        coord_cartesian(ylim=c(0.85,0.975)) +
+        labs(title="Kappa with the range of 2 standard deviation", x= "Method", y="Kappa") +
+        scale_y_continuous(breaks=seq(0.85, 0.975, 0.025))
+```
+

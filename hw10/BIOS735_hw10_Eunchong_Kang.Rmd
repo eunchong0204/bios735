@@ -1,0 +1,257 @@
+---
+title: "HW 10 - advMCMC"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# MCMC extension of HW 6
+
+The probability of $Y$ is $P(Y=y \, | \pi, \lambda) = \pi I(y=0) +(1-\pi)\frac{e^{-\lambda}\lambda^y}{y!}$ \\ 
+
+Thus, the posterior distribution is below.
+
+\begin{align}
+\log f(\pi,\lambda | \boldsymbol{y}) &\propto \log f(\boldsymbol{y} | \pi, \lambda)f(\pi,\lambda)\\
+&= n_0 \log (\pi + (1-\pi)e^{-\lambda}) + \sum_{k=1}^{6} n_k \log (1-\pi)\frac{e^{-\lambda}\lambda^k}{k!} + \log f(\pi) + \log f(\lambda)  \\
+\end{align}
+
+where $\pi \sim U(0,1)$ and $\lambda \sim Gamma(2,2)$.  
+
+Metropolis-within-Gibbs method will be used, but every step in the Gibbs cycle will be replaced by a Metropolis step using a random walk.  
+
+ For $\pi$, it was reparameterized into $u = \log \frac{\pi}{1-\pi}$ and $|J|=\frac{1}{p(1-p)}$. Therefore, its proposal was $u^* = u^{(t)} + \epsilon_{\pi}$, where $\epsilon_{\pi} \sim N(0,0.12^2)$.  
+ For $\lambda$, it was not reparameterized, but when $x^*$ from $x^* = x^{(t)} + \epsilon_{\lambda}$ was non-positive, the proposal was not accepted. The distribution was $\epsilon_{\lambda} \sim N(0, 0.09^2)$ to achieve the acceptance rate of around 0.44. 
+
+The chain was created using $M = 20000$, random seed (1), starting values ($\pi^{(0)} = 0.3$, $\lambda = 3$), and burn-in period (2000 iterations).   
+For the result, trace plots, autocorrelation, and acceptance rates were used for chain diagnostics. And then, the posterior means for $\pi$ and $\lambda$ were calculated from the mean of the chain.
+
+## 1. Creating Helper Functions
+1. 'lplambda' is the function of Log-prior for $\lambda$
+2. 'lppi' is the function of Log-prior for $\pi$
+3. 'logit' is the logit function
+4. 'inv.logit' is the Inverse logit function
+5. 'r.walk_u' is the Random walk function for $\pi$
+6. 'r.walk_lambda' is the Random walk function for $\lambda$
+7. 'll' is the Log-likelihood function
+8. 'R' is the MH ratio function
+
+```{r}
+### HELPER FUNCTIONS
+# 1. log prior for lambda
+lplambda <- function(lambda){
+        lplambda <- dgamma(lambda, shape=2, scale=2, log=TRUE)
+        
+        return(lplambda)
+}
+
+# 2. log prior for pi
+# This is not necessary b/c its value is always 1
+lppi <- function(pi){
+        lppi <- dunif(pi, min=0, max=1, log=TRUE)
+        
+        return(lppi)
+}
+
+# Change of variable for pi
+# 3. logit function
+logit <- function(pi){
+        u <- log(pi/(1-pi))
+        
+        return(u)
+}
+
+# 4. inverse logit function
+inv.logit <- function(u){
+        pi <- exp(u)/(1+exp(u))
+        
+        return(pi)
+}
+
+# Functions of producing a random walk.
+# 5. N(0, 0.12^2) for u (and pi)
+r.walk_u <- function(){
+        r.walk <- rnorm(1, mean=0, sd=0.12)
+        
+        return(r.walk)
+}
+# 6. normal(0, 0.09^2) for lambda
+r.walk_lambda <- function(){
+        r.walk <- rnorm(1, mean=0, sd=0.09)
+        
+        return(r.walk)
+}
+
+
+# 7. Log-likelihood
+ll <- function(y, ny, x){
+  pi = x[1]
+  lambda = x[2]
+  
+  # when y = 0
+  y0 <- ny[which(y==0)]*log(pi + (1-pi)*exp(-lambda))
+  
+  # when y > 0 (y greater then 0)
+  ygt0 <- sum(ny[which(y!=0)] * log((1-pi)*dpois(y[which(y!=0)], lambda=lambda)))
+  
+  # log-Jacobian for pi and u
+  log_jacob <- -log(pi*(1-pi))
+  
+  # log-likelihood
+  ll <- y0 + ygt0 + lplambda(lambda) + lppi(pi) + log_jacob
+  
+  return(ll)
+}
+
+
+# 8. MH ratio
+R <- function(y, ny, x, xt){
+        logR <- ll(y,ny,x) - ll(y,ny,xt)
+        R <- exp(logR)
+        
+        return(R)
+}
+```
+
+## 2. Setting up
+
+
+```{r}
+# set the seed
+set.seed(1)
+
+# data
+y <- 0:6
+ny <- c(3062, 587, 284, 103, 33, 4, 2)
+
+# Set chain length and Burn.in
+M <- 20000
+burn.in <- 2000
+
+# initialize the chain vector (alpha, lambda)
+x.rw.chain <- matrix(0, M + burn.in, 2)
+colnames(x.rw.chain) <- c("pi","lambda")
+
+# Initialize chain with specified initial values
+# alpha, lambda
+x.rw.chain[1,] <- c(0.3, 3)
+
+# Creating an empty vector for acceptance rate
+accept <- rep(0,2)
+```
+
+## 3. Sampling
+
+```{r}
+# now start chain
+for(i in 1:(M - 1 + burn.in)) {
+        # set the value at current iteration of the chain to variable xt
+        xt <- x.rw.chain[i, ]
+        
+        ### loop for pi and lambda
+
+        ## Step 1: pi        
+        # set proposal equal to previous
+        x <- xt
+                
+        # change of variable
+        u <- logit(x[1])
+                
+        # Update
+        u <- u + r.walk_u()
+                
+        # Transform back to pi
+        x[1] <- inv.logit(u)
+                
+        # Calculate MH ratio
+        r <- min(R(y, ny, x, xt), 1)
+                
+        # Generate draw from bernoulli(r)
+        keep <- rbinom(1,1,r)
+                
+        # if keep = 1, then set next iteration equal to then proposal
+        if (keep == 1) {
+                # update into the chain
+                x.rw.chain[i + 1, ] <- x
+                        
+                # reset xt
+                xt <- x
+                        
+                # update number of acceaptance
+                accept[1] <- accept[1] + 1
+        } else{
+                # otherwise, carry over value from the current iteration
+                x.rw.chain[i + 1, ] <- xt
+        }
+        ## The end of Step 1 (pi)
+        
+                
+        ## Step 2: lambda
+        # set proposal equal to previous
+        x <- xt
+                
+        # Candidate
+        proposed <- x[2] + r.walk_lambda()
+        
+        # If proposed x is non-positive, then use xt. 
+        if (proposed <= 0){
+                r <- 0
+        } else {
+                x[2] <- proposed
+                        
+                # Calculate MH ratio
+                r <- min(R(y, ny, x, xt), 1)
+        }
+        
+        # Generate draw from bernoulli(r)
+        keep <- rbinom(1,1,r)
+                
+        # if keep = 1, then set next iteration equal to then proposal
+        if (keep == 1) {
+                x.rw.chain[i + 1, ] <- x
+                        
+                # reset xt
+                xt <- x
+                        
+                # update number of acceaptance
+                accept[2] <- accept[2] + 1
+        } else {
+                # otherwise, carry over value from the current iteration
+                x.rw.chain[i + 1, ] <- xt
+        }
+        ## The end of Step 1 (lambda)
+        ### The end of loop for pi and lambda
+        # now, one sample is created.
+}
+
+# Deleting burn.in samples.
+x.rw.chain <- x.rw.chain[-c(1:burn.in),]
+```
+
+
+```{r}
+# print posterior means and diagnostic plots.  Comment on convergence
+
+# Acceptance rates
+accept/M
+
+# Plot of samples
+plot(x.rw.chain[1:M,1], type="l", main="Chain of pi")
+plot(x.rw.chain[1:M,2], type="l", main="Chain of lambda")
+
+# Autocorrelation plots
+acf(x.rw.chain[1:M,1])
+acf(x.rw.chain[1:M,2])
+
+# Mean of posterior means for pi
+mean(x.rw.chain[1:M,1])
+# Mean of posterior means for lambda
+mean(x.rw.chain[1:M,2])
+
+```

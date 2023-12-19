@@ -1,0 +1,295 @@
+---
+title: "Homework 5 - Optimization"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r library, warning=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+
+# Question 1:  Simple Univariate Optimization
+
+Use Newton-Raphson to maximize the following function:  $$f(x) = 7\log(x) + 3\log(1-x).$$ 
+
+```{r}
+# f(x)
+f = function(x){
+        value <- 7*log(x) + 3*log(1-x)
+        return(value)
+}
+# first derivative
+f1 = function(x){
+        first <- 7/x - 3/(1-x)
+        return(first)
+}
+# second derivative
+f2 = function(x){
+        second <- -7/x^2 - 3/(1-x)^2
+        return(second)
+}
+
+# Iteration function
+nr1 <- function(x, tol=10^-4, maxit=50, iter=0, eps=Inf) {
+        init <- x
+
+        while (eps > tol & iter < maxit){
+                  # Save the previous value
+                  x0 <- x
+                  
+                  # Calculate increment
+                  h <- -f1(x) / f2(x)
+                  
+                  # Update x
+                  x <- x + h
+                  
+                  # Update f(x)
+                  value <- f(x)
+                  
+                  # Calculate diff between x
+                  eps <- abs(x-x0)
+                  
+                  # Update iteration
+                  iter <- iter + 1
+                  if (iter == maxit){
+                          warning("Iteration limit reached without convergence")
+                  }
+        }
+        paste("The initial x is", init, ". The results of NR method are X =", 
+              round(x, digits = 6), "and f(x) =", round(value, digits = 6))
+}
+
+# to start the model, put the inital x in the nr1 function.
+# The default for others are below.
+# tol = 10^-4
+# maxit = 50
+# iter = 0
+# eps = Inf
+```
+
+```{r}
+# Inital x is 0.01
+nr1(0.01)
+# Inital x is 0.5
+nr1(0.5)
+# Inital x is 0.99
+nr1(0.99)
+```
+
+Bonus: $f(x)$ pertains to the likelihood/PDF for which distribution(s)?  Two answers are possible.  Given this, what would be a closed form estimate for $\hat{x}$?
+
+  + Conclusion: f(x) has the same kernel as the loglikelihood of binomial distribution. In this case, the estimate for probability is $$\hat{p} = \frac{x}{n}$$ where $$x \sim binom(n,p)$$
+
+
+# Question 2:  Not So Simple Univariate Optimization
+
+Repeat question 1 for the function below,
+
+$$f(x) = 1.95 - e^{-2/x} - 2e^{-x^4}.$$
+
+```{r}
+# f(x)
+f = function(x){
+        value <- 1.95 - exp(-2/x) -  2*exp(-x^4)
+        return(value)
+}
+# first derivative
+f1 = function(x){
+        first <- -2*x^(-2)*exp(-2/x) + 8*x^3*exp(-x^4)
+        return(first)
+}
+# second derivative
+f2 = function(x){
+        second <- 4*x^(-3)*exp(-2/x) - 4*x^(-4)*exp(-2/x) + 24*x^2*exp(-x^4) - 32*x^6*exp(-x^4)
+        return(second)
+}
+
+
+
+# Iteration
+nr2 <- function(x, tol=10^-4, maxit=50, iter=0, eps=Inf) {
+        init <- x
+
+        while (eps > tol & iter < maxit){
+                  # Save the previous value
+                  x0 <- x
+                  
+                  # Calculate increment
+                  h <- -f1(x) / f2(x)
+                  
+                  # Update x
+                  x <- x + h
+                  
+                  # Update f(x)
+                  value <- f(x)
+                  
+                  # Calculate diff between x
+                  eps <- abs(x-x0)
+                  
+                  # Update iteration
+                  iter <- iter + 1
+                  if (iter == maxit){
+                          warning("Iteration limit reached without convergence")
+                  }
+        }
+        paste("The initial x is", init, ". The results of NR method are X =", 
+              round(x, digits = 6), "and f(x) =", round(value, digits = 6))
+}
+
+# to start the model, put the inital x in the nr1 function.
+# The default for others are below.
+# tol = 10^-4
+# maxit = 50
+# iter = 0
+# eps = Inf
+```
+
+```{r}
+# Inital x is 1.2
+nr2(1.2)
+# Inital x is 0.5
+nr2(0.5)
+# Inital x is 0.99
+nr2(0.99)
+# When maxit is greater than 300, x becomes very large number and f2(x) gets NaN (Inf*0)
+# nr2(0.99, maxit=2000)
+
+```
+
+  + Conclusion: f(x) is maximized at x = 1.470358 with the value of 1.674725
+
+What does this say about the stability of NR, especially in this case?  Plot the second derivative of this function and comment on why or why this is supports your observations.
+
+```{r}
+x2 <- seq(0.01, 5, by=0.01)
+dt <- tibble("x"=x2, "second_derivative"=f2(x2))
+ggplot(dt, aes(x2, second_derivative)) +
+        geom_point(size=0.5) +
+        ggtitle("The graph of The second derivative of f(x)")
+
+# The second derivative of near x=5
+tail(dt)
+
+# The second derivative is positive at the large x.
+f2(100)
+
+```
+
+  + Conclustion: From the result, NR method is sensitive to the choice of starting value. It could diverge or even obtain different points. From the graph, the second derivative approaches zero but positive. Thus, as x increases, the first derivative is positive and f(x) keeps increasing.
+
+
+
+
+# Question 3: Multivariate optimization - Zero-inflated Poisson 
+
+Frequency Table
+
+```{r, echo=F, warning=FALSE}
+library(knitr)
+kable(matrix(c(3062, 587, 284, 103, 33, 4, 2), nrow = 1, byrow = T),col.names = as.character(0:6),format = "html", table.attr = "style='width:30%;'",)
+```
+
+Loglikelihood function
+
+$$\mathcal{l}(\boldsymbol{\theta}) = n_0\log(\pi + (1-\pi)e^{-\lambda}) + (N-n_0)[\log(1-\pi) - \lambda] + \sum_{i=1}^{\infty}in_i\log(\lambda)$$
+
+fit this model with Newton-Raphson.
+
+```{r}
+# f(x)
+logLik = function(theta, y, ny){
+        pi <- theta[1]
+        lam <- theta[2]
+        
+        value <- ny[1]*log(pi +(1-pi)*exp(-lam)) + (sum(ny)-ny[1])*(log(1-pi)-lam) + sum(y*ny) * log(lam)
+        
+        return(value)
+}
+
+# first derivative
+f1 = function(theta, y, ny){
+        pi <- theta[1]
+        lam <- theta[2]
+        
+        drv_pi <- ny[1]*(1-exp(-lam))/(pi + (1-pi)*exp(-lam)) - (sum(ny)-ny[1])/(1-pi)
+                
+        drv_lambda <- -ny[1]*(1-pi)*exp(-lam)/(pi + (1-pi)*exp(-lam)) - (sum(ny)-ny[1]) + sum(y*ny)/lam
+        
+        return(matrix(c(drv_pi, drv_lambda), nrow=2))
+}
+
+# second derivative
+f2 = function(theta,y, ny){
+        pi <- theta[1]
+        lam <- theta[2]
+        
+        sec_drv_pi <- -ny[1]*(1-exp(-lam))^2/(pi + (1-pi)*exp(-lam))^2 - (sum(ny)-ny[1])/(1-pi)^2
+        
+        sec_drv_lambda <- -ny[1]*(1-pi)^2*exp(-2*lam)/(pi + (1-pi)*exp(-lam))^2 + 
+                                ny[1]*(1-pi)*exp(-lam)/(pi + (1-pi)*exp(-lam)) - sum(y*ny)/lam^2
+        
+        sec_drv_pi_lambda <- ny[1]*(1-exp(-lam))*(1-pi)*exp(-lam)/(pi + (1-pi)*exp(-lam))^2 + 
+                                ny[1]*exp(-lam)/(pi + (1-pi)*exp(-lam))
+        
+        return(matrix(c(sec_drv_pi, sec_drv_pi_lambda, sec_drv_pi_lambda, sec_drv_lambda), nrow=2, byrow=TRUE))
+}
+
+# Iteration function
+nr3 <- function(theta, y, ny, eps=Inf, tol=10^-4, iter=0, maxit=50) {
+        init <- theta
+        
+        while (eps > tol & iter < maxit) {
+                # Save the previous value
+                theta0 <- theta
+                
+                # Calculate increment
+                h <- -solve(f2(theta, y, ny)) %*% f1(theta, y, ny)
+                
+                # Update theta
+                theta <- theta + h
+                
+                # Update f(x)
+                value <- logLik(theta, y, ny)
+                
+                # Calculate diff between x
+                eps <- sqrt(sum((theta - theta0) ^ 2))
+                
+                # Update iteration
+                iter <- iter + 1
+                if (iter == maxit) {
+                        warning("Iteration limit reached without convergence")
+                }
+        }
+        
+        paste("The initial theta is (", round(init[1],digits=6), round(init[2],digits=6), 
+              "). The results of NR method are theta = (", 
+              round(theta[1], digits = 6), round(theta[2], digits = 6), 
+              ") and logLik =", round(value[1], digits = 6))
+}
+```
+
+```{r}
+# data 
+y = 0:6
+ny = c(3062, 587, 284, 103, 33, 4, 2)
+theta = c(
+          ny[y==0]/sum(ny), # initial value for pi, prop of total 0's
+          sum(ny*y)/sum(ny) # intial value for lambda, mean of y's
+          )
+
+# Results
+nr3(theta, y, ny)
+```
+
+Given the estimates, interpret the results. 
+
+ + Conclusion: The proportion of subjects who didn't intended to go fishing is estimated 0.615057. On average, those who intended to go fishing caught 1.037839 fish.

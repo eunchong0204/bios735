@@ -1,0 +1,17 @@
+Package: bios735
+Title: Vectorized t-Test
+Version: 0.0.1
+Description: takes a matrix and a vector which assigns levels to the columns
+    of the matrix and executes vectorized t-tests by rows 
+    allowing a vector of t-statistics to be returned.
+Authors@R: 
+    person("Eunchong", "Kang", ,"eunchong@email.unc.edu", role = c("aut", "cre"))
+License: GPL-2
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1
+Imports: Rcpp (>= 1.0.8), RcppArmadillo
+Suggests: 
+    testthat (>= 3.0.0)
+LinkingTo: Rcpp, RcppArmadillo
+Config/testthat/edition: 3

@@ -1,0 +1,8 @@
+HW1	5	5	5	Q1, good job functionalizing and reducing repetitive code. It would make your code more readable to define your cond and cal functions outside of your foobar function
+HW2	5	5	5	Good job
+HW3	5	5	5	5	
+HW4	5	5	5	5	
+HW5	6	5	5	
+HW6	5	
+HW7	5	
+HW8	5	

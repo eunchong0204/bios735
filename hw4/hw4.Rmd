@@ -1,0 +1,234 @@
+---
+title: "Homework 4 - Working with large datasets"
+author: "Eunchong Kang"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Library setup
+```{r echo=FALSE}
+library(data.table)
+library(microbenchmark)
+library(tidyverse)
+library(Matrix)
+library(sparsesvd)
+library(grid)
+library(gridExtra)
+
+```
+
+# Question 1 - benchmark data.table's grouping on real data
+
+0. Import data as data.table
+```{r}
+dt <- fread("../Scorecard_2009-2016.csv")
+dt2 <- dt
+```
+
+1. Modify data types with the level
+
+        | C | Value              |     |
+        |---|--------------------|-----|
+        | 1 | Public             | pub |
+        | 2 | Private nonprofit  | pnp |
+        | 3 | Private for-profit | pfp |
+        
+```{r warning=FALSE}
+dt2$TUITFTE <- as.numeric(dt2$TUITFTE)
+dt2$SAT_AVG <- as.numeric(dt2$SAT_AVG)
+dt2$CONTROL <- as.factor(dt2$CONTROL)
+levels(dt2$CONTROL) <- c("pub", "pnp", "pfp")
+```
+
+2. Tabulate the number of schools by `CONTROL` with or without non-NA values for both `TUITFTE` *and* `SAT_AVG`.
+
+```{r}
+# The number of schools by CONTROL
+dt2[, .N, by = CONTROL]
+
+# The numbet of schools by CONTROL that have non-NA values for TUITFTE and SAT_AVG
+dt2[TUITFTE != "NA" & SAT_AVG != "NA", .N, by = CONTROL]
+# or dt2[!is.na(TUITFTE) & !is.na(SAT_AVG), .N, by = CONTROL]
+```
+
+3. Compute the mean and SD of `TUITFTE` and `SAT_AVG` by `CONTROL`.
+
+```{r}
+# My NA-removed mean and sd function
+mean_NA_removed <- function(x){
+        return(mean(x[!is.na(x)]))
+}
+sd_NA_removed <- function(x){
+        return(sd(x[!is.na(x)]))
+}
+
+# Using data.table
+dt2[,
+    .(TUITFTE_mean=mean_NA_removed(TUITFTE), SAT_AVG_mean=mean_NA_removed(SAT_AVG),
+      TUITFTE_sd=sd_NA_removed(TUITFTE), SAT_AVG_sd=sd_NA_removed(SAT_AVG)), 
+    by = CONTROL]
+
+# Using aggregate
+merge(aggregate(dt2[, c("TUITFTE", "SAT_AVG")], dt2[, "CONTROL"], mean_NA_removed),
+      aggregate(dt2[, c("TUITFTE", "SAT_AVG")], dt2[, "CONTROL"], sd_NA_removed), 
+      by = "CONTROL", suffixes = c("_mean", "_sd"), sort = FALSE)
+
+# Compare two methods
+microbenchmark(dt2[,
+                   .(TUITFTE_mean=mean_NA_removed(TUITFTE), SAT_AVG_mean=mean_NA_removed(SAT_AVG),
+                     TUITFTE_sd=sd_NA_removed(TUITFTE), SAT_AVG_sd=sd_NA_removed(SAT_AVG)), 
+                   by = CONTROL],
+               merge(aggregate(dt2[, c("TUITFTE", "SAT_AVG")], dt2[, "CONTROL"], mean_NA_removed),
+                     aggregate(dt2[, c("TUITFTE", "SAT_AVG")], dt2[, "CONTROL"], sd_NA_removed), 
+                     by = "CONTROL", suffixes = c("_mean", "_sd"), sort = FALSE),
+               times = 10)
+```
+
+
+# Question 2- doing more with "by" in data.table
+
+1. Make `scores.sub`
+```{r}
+# Making `scores.sub`
+scores.sub <- na.omit(dt2, cols=c("TUITFTE", "SAT_AVG"))
+```
+
+2. Make a plot of `SAT_AVG` over `TUITFTE`
+```{r}
+# Making a plot
+ggplot(scores.sub, aes(TUITFTE, SAT_AVG)) +
+        geom_point(aes(color= CONTROL), alpha = 0.7, position = "jitter") +
+        ggtitle("Scatter Plot of SAT_AVG over TUITFTE") +
+        coord_cartesian(xlim=c(0,40000), ylim=c(500,1600)) +
+        labs(x= "Tuition per FTE", y="Average SAT") +
+        scale_x_continuous(breaks=seq(0, 40000, 5000)) +
+        scale_y_continuous(breaks=seq(500, 1600, 100))
+```
+
+3. Tabulate the number of schools that have tuition per FTE over
+20,000 and/or average SAT over 1200, grouped by ownership
+category.
+
+```{r}
+scores.sub[, .N, keyby = .(CONTROL, 
+                        TUITFTE_over20000 = TUITFTE > 20000, 
+                        SAT_AVG_over1200 = SAT_AVG > 1200)]
+```
+
+# Question 3 - subsets of data 
+
+1. Obtain the tuition per FTE and average SAT for the
+two schools with the top average SAT within each ownership
+group.
+
+```{r}
+scores.sub[, .(CONTROL, TUITFTE, SAT_AVG)][order(-SAT_AVG)][, head(.SD, 1), keyby = CONTROL]
+```
+
+
+# Question 4 - MovieLens sparse dataset
+
+0. Importing data
+```{r}
+links <- read_csv("../ml-latest-small/links.csv")
+movies <- read_csv("../ml-latest-small/movies.csv")
+ratings <- read_csv("../ml-latest-small/ratings.csv")
+tags <- read_csv("../ml-latest-small/tags.csv")
+```
+
+1. How many of the movies have the "Comedy" genre attached to
+them? 
+
+```{r}
+sum(grepl("Comedy", movies$genres))
+```
+
+2. Build a sparse matrix of the movies by users and investigate the range, quartiles,
+etc. of number of movies rated by each user.
+
+```{r}
+# Making sparse matrix of movies by user.
+mtrx <- sparseMatrix(ratings$movieId, ratings$userId, x=1)
+mtrx_ratings <- mtrx[rowSums(mtrx) != 0,]
+dim(mtrx_ratings)
+
+# Summary
+summary <- summary(mtrx_ratings) %>% 
+        group_by(j) %>% 
+        summarise(count = n())
+ggplot(summary, aes(y=count)) +
+                geom_boxplot(width=1) +
+                scale_x_continuous(limits = c(-1, 1)) +
+                scale_y_continuous(breaks=seq(0, 3000, 500)) +
+                ggtitle("Boxplot of the number of ratings by users") +
+                theme(axis.text.x=element_blank())
+
+summary(summary$count)
+```
+
+3. Compute SVD
+
+```{r}
+# Making key variable to match the spare matrix row number to movieId 
+keys <- data.frame(movieId = unique(ratings$movieId), key = 1:9724)
+keys_byRow <- left_join(keys, movies, by="movieId")
+
+# Computing SVD
+svd <- sparsesvd(mtrx_ratings, rank=3)
+dim(svd$u)
+```
+
+4. Plot the columns of the U matrix against each other: 1 vs 2, 2 vs 3, 1
+vs 3.
+
+```{r}
+# Change svd matrix to data.frame with key variable
+svd_df <- data.frame(svd$u) %>%
+        mutate(key = 1:nrow(svd$u)) %>%
+        rename("u1"="X1", "u2"="X2", "u3"="X3")
+
+plot_1_2 <- ggplot(svd_df, aes(u1, u2)) +
+        geom_point() +
+        ggtitle("Scatter plot of u2 over u1")
+
+plot_1_3 <- ggplot(svd_df, aes(u1, u3)) +
+        geom_point() +
+        ggtitle("Scatter plot of u3 over u1")
+
+plot_2_3 <- ggplot(svd_df, aes(u2, u3)) +
+        geom_point() +
+        ggtitle("Scatter plot of u3 over u2")
+
+grid.arrange(plot_1_2, plot_1_3, plot_2_3, nrow = 1, ncol = 3)
+```
+
+5. Investigate the names of these movies. What property can you
+infer about the top 6 movies in the tail w.r.t. column 1 and 3.
+
+```{r}
+# Top 6 moives w.r.t the sum of u1 and u3
+df_movies_key_u <- left_join(keys_byRow, svd_df, by="key")
+df_movies_key_u %>% mutate(sum_u1_u3 = u1 + u3) %>%
+                        arrange(desc(sum_u1_u3)) %>%
+                        head(n=6)
+```
+
+6. Look at the extremes of column 2 of U.
+
+```{r}
+# Extremes of u2
+# Largest
+df_movies_key_u %>% arrange(desc(u2)) %>%
+                        head(n=5) 
+# Smallest
+df_movies_key_u %>% arrange(u2) %>%
+                        head(n=5)
+```
+
+  + comments: The movies with the highest values in both u1 and u3 
+have the same characterstics of the two corresponding latent factors.
+It is difficult for me to infer some property to be shared by those movies when considering its name and genre.
+Similarly, one can sort movies by a latent factor represented by u2. It is hard to tell the differences between the largest and smallest groups with regard to u2.
+
